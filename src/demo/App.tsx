@@ -3,7 +3,7 @@ import { SmartBarChart } from '../lib'
 import '../demo/App.css'
 
 function App() {
-  const [apiKey, setApiKey] = useState('AIzaSyAi_8VzcWEu-f4MkMKxA2ifGbKyuv_AswY');
+  const [apiKey, setApiKey] = useState('');
   const [view, setView] = useState<'day' | 'week' | 'month'>('month');
   const [variant, setVariant] = useState<'default' | 'stacked'>('default');
 
