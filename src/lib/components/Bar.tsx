@@ -1,7 +1,10 @@
 import React, { useMemo } from 'react';
+import { motion } from 'framer-motion';
 import type { DataPoint } from '../types';
 
-interface BarProps extends Omit<React.SVGProps<SVGRectElement>, 'onClick' | 'onMouseOver' | 'onMouseOut'> {
+interface BarProps extends Omit<React.SVGProps<SVGRectElement>,
+    'onClick' | 'onMouseOver' | 'onMouseOut' | 'onAnimationStart' | 'onAnimationEnd' | 'onAnimationIteration' | 'onDrag' | 'onDragStart' | 'onDragEnd' | 'values'
+> {
     x: number;
     y: number;
     width: number;
@@ -24,15 +27,15 @@ export const Bar: React.FC<BarProps> = ({
     }, [data, isActive]);
 
     return (
-        <rect
-            x={x}
-            y={y}
+        <motion.rect
+            initial={{ height: 0, y: y + height }}
+            animate={{ height, y }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             width={width}
-            height={height}
             fill={fillColor}
-            rx={4} // Rounded corners top
+            rx={4}
             ry={4}
-            className="transition-all duration-300 cursor-pointer hover:opacity-80"
+            className="cursor-pointer hover:opacity-80"
             onClick={() => onClick?.(data)}
             onMouseEnter={() => onHover?.(data)}
             onMouseLeave={() => onHover?.(null)}
@@ -40,7 +43,6 @@ export const Bar: React.FC<BarProps> = ({
                 opacity: isDimmed ? 0.3 : (data.isPrediction ? 0.7 : 1),
                 stroke: isActive ? '#c0392b' : 'none',
                 strokeWidth: isActive ? 2 : 0,
-                transition: 'all 0.3s ease',
                 ...style
             }}
             {...rest}
