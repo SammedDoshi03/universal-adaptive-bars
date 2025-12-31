@@ -1,7 +1,7 @@
 {
   "name": "universal-adaptive-bars",
   "private": false,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A highly customizable smart bar chart for React and React Native",
   "author": "Sammed Doshi <Sammeddoshi03.sd@gmail.com>",
   "repository": {
