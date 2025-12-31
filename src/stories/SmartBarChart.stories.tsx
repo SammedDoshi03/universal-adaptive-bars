@@ -29,6 +29,7 @@ export const Default: Story = {
         view: 'month',
         dataKeys: { label: 'label', value: 'value', date: 'date' },
         height: 400,
+        axisLabels: { x: 'Date Timeline', y: 'Revenue ($)' }
     },
 };
 
