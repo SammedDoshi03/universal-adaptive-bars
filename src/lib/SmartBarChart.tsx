@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { scaleBand, scaleLinear } from 'd3-scale';
-import { getYear, getMonth, format, endOfWeek, eachWeekOfInterval, endOfMonth, isWithinInterval } from 'date-fns';
+import { getYear, format, endOfWeek, eachWeekOfInterval, endOfMonth } from 'date-fns';
 import { useChartData } from './hooks/useChartData';
 import { Bar } from './components/Bar';
 import type { SmartBarChartProps, DataPoint } from './types';
@@ -10,7 +10,7 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
     data,
     view = 'month',
     variant = 'default',
-    dataKeys = { date: 'date', value: 'value', label: 'label' },
+    dataKeys: providedDataKeys = { date: 'date', value: 'value', label: 'label' },
 
     geminiConfig,
     colors,
@@ -21,29 +21,39 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
     className = '',
     theme
 }) => {
+    // Helper for rounded paths
+    const getRoundedPath = (x: number, y: number, w: number, h: number, r: number, corners: { tl: boolean, tr: boolean, bl: boolean, br: boolean }) => {
+        const tl = corners.tl ? r : 0;
+        const tr = corners.tr ? r : 0;
+        const bl = corners.bl ? r : 0;
+        const br = corners.br ? r : 0;
+
+        return `
+        M ${x + tl} ${y}
+        L ${x + w - tr} ${y}
+        Q ${x + w} ${y} ${x + w} ${y + tr}
+        L ${x + w} ${y + h - br}
+        Q ${x + w} ${y + h} ${x + w - br} ${y + h}
+        L ${x + bl} ${y + h}
+        Q ${x} ${y + h} ${x} ${y + h - bl}
+        L ${x} ${y + tl}
+        Q ${x} ${y} ${x + tl} ${y}
+        Z
+        `;
+    };
     // Calendar / Filter State
     const [filterDate, setFilterDate] = useState<{ year: number | null, month: number | null, weekStartDate: Date | null }>({ year: null, month: null, weekStartDate: null });
+    const [tempFilterDate, setTempFilterDate] = useState<{ year: number | null, month: number | null, weekStartDate: Date | null }>({ year: null, month: null, weekStartDate: null });
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const [pickerMode, setPickerMode] = useState<'year' | 'month' | 'week'>('year');
 
+    const dataKeys = useMemo(() => providedDataKeys, [providedDataKeys.date, providedDataKeys.label, Array.isArray(providedDataKeys.value) ? providedDataKeys.value.join(',') : providedDataKeys.value]);
+
     // Filter Raw Data BEFORE hooks
-    const filteredRawData = useMemo(() => {
-        if (!filterDate.year) return data;
-        return data.filter(d => {
-            const dateStr = d[dataKeys.date] as string;
-            const date = new Date(dateStr);
-            if (getYear(date) !== filterDate.year) return false;
-            if (filterDate.month !== null && getMonth(date) !== filterDate.month) return false;
-
-            if (filterDate.weekStartDate) {
-                const start = filterDate.weekStartDate;
-                const end = endOfWeek(start);
-                return isWithinInterval(date, { start, end });
-            }
-
-            return true;
-        });
-    }, [data, filterDate, dataKeys.date]);
+    // REF_CHANGE: We no longer filter the data here. We pass full data to useChartData
+    // and use the filterDate only to determining the initial Window Offset.
+    // However, we might still want to filter if the user explicitly wants to "Restrict" logic, 
+    // but the request is to allow navigation. So we pass `data` directly.
 
     // Derived Years for Picker
     const availableYears = useMemo(() => {
@@ -51,7 +61,7 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
         return Array.from(years).sort((a, b) => b - a);
     }, [data, dataKeys.date]);
 
-    const fullChartData = useChartData({ data: filteredRawData, view, dataKeys, colors });
+    const fullChartData = useChartData({ data, view, dataKeys, colors });
     const [activeItem, setActiveItem] = useState<DataPoint | null>(null);
     const [predictions, setPredictions] = useState<DataPoint[]>([]);
     const [isPredicting, setIsPredicting] = useState(false);
@@ -86,35 +96,98 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
 
     }, [view]);
 
-    // Separate effect for filterDate so we don't create circular loops with the above
+    // Watch for filterDate changes to update Window Offset (Navigation / Jump)
     useEffect(() => {
-        setWindowOffset(0);
+        if (!filterDate.year && !filterDate.weekStartDate && filterDate.month === null) return;
+
         setPredictions([]);
-    }, [filterDate]);
+
+        // Find the index of the first item that matches our filter
+        // We need to look at 'fullChartData', but wait, 'fullChartData' depends on 'view'.
+        // If 'view' just changed, 'fullChartData' will update in next render.
+        // We might need to delay this check or simply calculate it.
+        // For now, let's assume 'fullChartData' is updated or will be. 
+        // Actually, if we change View AND Filter same time, we need to be careful.
+
+        // Let's defer this logic slightly or assume the user cycle involves a render.
+        // Typically, we want to find the first data point that starts at or after our filter date.
+
+        let targetDate: Date | null = null;
+        if (filterDate.weekStartDate) targetDate = filterDate.weekStartDate;
+        else if (filterDate.month !== null && filterDate.year) targetDate = new Date(filterDate.year, filterDate.month, 1);
+        else if (filterDate.year) targetDate = new Date(filterDate.year, 0, 1);
+
+        if (targetDate && fullChartData.length > 0) {
+            // Find index
+            const idx = fullChartData.findIndex(d => d.date.getTime() >= targetDate!.getTime());
+            if (idx !== -1) {
+                // We want this 'idx' to be the first visible item (start of window).
+                // start = total - vis - offset
+                // idx = total - vis - offset
+                // offset = total - vis - idx
+
+                const total = fullChartData.length;
+                const newOffset = Math.max(0, total - VISIBLE_COUNT - idx);
+                setWindowOffset(newOffset);
+            }
+        }
+    }, [filterDate, fullChartData, VISIBLE_COUNT]); // Depend on fullChartData so it runs after data update
 
     const handleYearSelect = (year: number) => {
-        setFilterDate({ year, month: null, weekStartDate: null });
+        setTempFilterDate({ year, month: null, weekStartDate: null });
         setPickerMode('month');
-        onViewChange?.('month');
     };
 
     const handleMonthSelect = (monthIndex: number) => {
-        setFilterDate(prev => ({ ...prev, month: monthIndex, weekStartDate: null }));
+        setTempFilterDate(prev => ({ ...prev, month: monthIndex, weekStartDate: null }));
         setPickerMode('week');
-        onViewChange?.('week');
     };
 
     const handleWeekSelect = (weekStart: Date) => {
-        setFilterDate(prev => ({ ...prev, weekStartDate: weekStart }));
+        setTempFilterDate(prev => ({ ...prev, weekStartDate: weekStart }));
+        // Logic change: Don't auto-close. Let them confirm.
+    };
+
+    const handleConfirm = () => {
+        setFilterDate(tempFilterDate);
         setIsPickerOpen(false);
-        onViewChange?.('day');
+
+        // Auto-update view based on depth
+        let targetView: 'day' | 'week' | 'month' | undefined = undefined;
+        if (tempFilterDate.weekStartDate) targetView = 'day';
+        else if (tempFilterDate.month !== null) targetView = 'week';
+        else if (tempFilterDate.year !== null) targetView = 'month';
+
+        if (targetView) {
+            onViewChange?.(targetView);
+        }
+
+        // Calculate Offset to Jump To
+        // data is sorted ascending. windowOffset is from the END.
+        // windowOffset = 0 => shows [ ... , last ]
+        // start = totalLen - VISIBLE_COUNT - windowOffset
+        // We want 'start' to be the index of our target date.
+        // So windowOffset = totalLen - VISIBLE_COUNT - targetIndex
+
+        // Need to find targetIndex in *re-calculated* fullChartData for the NEW view.
+        // Since we can't wait for 'fullChartData' to update in this render cycle effectively 
+        // (unless we wait for effect), we might need to rely on the fact that useChartData is fast 
+        // or recalculate finding index in an effect.
+
+        // BETTER APPROACH:
+        // We just updated 'filterDate'. We can add an Effect that watches 'filterDate' 
+        // and updates 'windowOffset' when it changes.
+    };
+
+    const handleOpenPicker = () => {
+        setTempFilterDate(filterDate); // Sync temp with current
+        setPickerMode(filterDate.year ? (filterDate.month !== null ? 'week' : 'month') : 'year');
+        setIsPickerOpen(true);
     };
 
     const clearFilter = () => {
-        setFilterDate({ year: null, month: null, weekStartDate: null });
+        setTempFilterDate({ year: null, month: null, weekStartDate: null });
         setPickerMode('year');
-        setIsPickerOpen(false);
-        onViewChange?.('month'); // Reset View
     };
 
     // Data Slicing
@@ -190,7 +263,7 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
     const axisSize = theme?.axis?.fontSize || 10;
 
     return (
-        <div className={`smart-bar-chart-wrapper ${className}`} style={{ width, display: 'flex', flexDirection: 'column', gap: 10, fontFamily: 'sans-serif', background: bg, padding: 16, borderRadius: 12 }}>
+        <div className={`smart-bar-chart-wrapper ${className}`} style={{ width, display: 'flex', flexDirection: 'column', gap: 10, fontFamily: 'sans-serif', background: bg, padding: 16, borderRadius: 12, position: 'relative' }}>
 
             {/* Legend / Info / Predict Header */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', height: 40 }}>
@@ -218,7 +291,7 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
 
                 {/* Calendar Button */}
                 <button
-                    onClick={() => setIsPickerOpen(!isPickerOpen)}
+                    onClick={() => isPickerOpen ? setIsPickerOpen(false) : handleOpenPicker()}
                     style={{
                         marginLeft: 10, padding: 6, cursor: 'pointer', background: '#fff', border: '1px solid #ddd', borderRadius: 4,
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
@@ -235,22 +308,30 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
                 {/* Calendar Picker Popup */}
                 {isPickerOpen && (
                     <div style={{
-                        position: 'absolute', top: 50, right: 0, width: 240, background: '#fff',
+                        position: 'absolute', top: 60, left: '50%', transform: 'translateX(-50%)', width: 260, background: '#fff',
                         border: '1px solid #e0e0e0', borderRadius: 12,
-                        boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 30, padding: 16,
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 30, padding: 16,
                         fontFamily: 'sans-serif'
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center' }}>
                             {pickerMode !== 'year' && (
                                 <button
-                                    onClick={() => setPickerMode(pickerMode === 'week' ? 'month' : 'year')}
+                                    onClick={() => {
+                                        if (pickerMode === 'week') {
+                                            setPickerMode('month');
+                                            setTempFilterDate(prev => ({ ...prev, weekStartDate: null }));
+                                        } else {
+                                            setPickerMode('year');
+                                            setTempFilterDate(prev => ({ ...prev, month: null, weekStartDate: null }));
+                                        }
+                                    }}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#6366f1', fontWeight: 600 }}
                                 >
                                     &lt; Back
                                 </button>
                             )}
                             <div style={{ fontSize: 14, fontWeight: 'bold', color: '#1f2937', flex: 1, textAlign: pickerMode !== 'year' ? 'center' : 'left' }}>
-                                {pickerMode === 'year' ? 'Select Year' : pickerMode === 'month' ? `${filterDate.year}` : `${format(new Date(filterDate.year!, filterDate.month!, 1), 'MMM yyyy')}`}
+                                {pickerMode === 'year' ? 'Select Year' : pickerMode === 'month' ? `${tempFilterDate.year}` : `${format(new Date(tempFilterDate.year!, tempFilterDate.month!, 1), 'MMM yyyy')}`}
                             </div>
                             <button
                                 onClick={() => { clearFilter(); }}
@@ -269,10 +350,10 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
                                         style={{
                                             padding: '8px 4px', fontSize: 13,
                                             border: '1px solid',
-                                            borderColor: filterDate.year === year ? '#6366f1' : '#eee',
+                                            borderColor: tempFilterDate.year === year ? '#6366f1' : '#eee',
                                             borderRadius: 6,
-                                            background: filterDate.year === year ? '#e0e7ff' : '#fff',
-                                            color: filterDate.year === year ? '#4338ca' : '#374151',
+                                            background: tempFilterDate.year === year ? '#e0e7ff' : '#fff',
+                                            color: tempFilterDate.year === year ? '#4338ca' : '#374151',
                                             cursor: 'pointer',
                                             transition: 'all 0.2s'
                                         }}
@@ -289,10 +370,10 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
                                         style={{
                                             padding: '8px 4px', fontSize: 13,
                                             border: '1px solid',
-                                            borderColor: filterDate.month === i ? '#6366f1' : '#eee',
+                                            borderColor: tempFilterDate.month === i ? '#6366f1' : '#eee',
                                             borderRadius: 6,
-                                            background: filterDate.month === i ? '#e0e7ff' : '#fff',
-                                            color: filterDate.month === i ? '#4338ca' : '#374151',
+                                            background: tempFilterDate.month === i ? '#e0e7ff' : '#fff',
+                                            color: tempFilterDate.month === i ? '#4338ca' : '#374151',
                                             cursor: 'pointer',
                                             transition: 'all 0.2s'
                                         }}
@@ -301,10 +382,10 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
                                     </button>
                                 ))
                             )}
-                            {pickerMode === 'week' && filterDate.year && filterDate.month !== null && (
+                            {pickerMode === 'week' && tempFilterDate.year && tempFilterDate.month !== null && (
                                 eachWeekOfInterval({
-                                    start: new Date(filterDate.year, filterDate.month, 1),
-                                    end: endOfMonth(new Date(filterDate.year, filterDate.month, 1))
+                                    start: new Date(tempFilterDate.year, tempFilterDate.month, 1),
+                                    end: endOfMonth(new Date(tempFilterDate.year, tempFilterDate.month, 1))
                                 }).map((weekStart, i) => {
                                     // Only show weeks that actually overlap with the month meaningfully?
                                     // eachWeekOfInterval gives standard weeks.
@@ -317,7 +398,7 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
                                             style={{
                                                 padding: '8px 12px', fontSize: 13,
                                                 border: '1px solid',
-                                                borderColor: '#eee',
+                                                borderColor: tempFilterDate.weekStartDate?.getTime() === weekStart.getTime() ? '#6366f1' : '#eee',
                                                 borderRadius: 6,
                                                 background: '#fff',
                                                 color: '#374151',
@@ -331,6 +412,27 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
                                     )
                                 })
                             )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                            <button
+                                onClick={handleConfirm}
+                                style={{
+                                    flex: 1, padding: '8px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6,
+                                    fontSize: 13, fontWeight: 'bold', cursor: 'pointer'
+                                }}
+                            >
+                                Confirm
+                            </button>
+                            <button
+                                onClick={() => setIsPickerOpen(false)}
+                                style={{
+                                    flex: 1, padding: '8px', background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 6,
+                                    fontSize: 13, fontWeight: 'bold', cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
                         </div>
                     </div>
                 )}
@@ -429,15 +531,27 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
                                             {d.stackedValues.map((stack, i) => {
                                                 const segmentHeight = Math.abs(yScale(stack.value) - yScale(0));
                                                 const segmentY = currentY - segmentHeight;
+
+                                                // Determine corners
+                                                const isTop = i === d.stackedValues!.length - 1;
+                                                const isBottom = i === 0;
+
+                                                // Only top-most segment gets top radius. 
+                                                // Only bottom-most segment gets bottom radius.
+                                                const corners = {
+                                                    tl: isTop,
+                                                    tr: isTop,
+                                                    bl: isBottom,
+                                                    br: isBottom
+                                                };
+
+                                                const pathD = getRoundedPath(x, segmentY, barWidth, segmentHeight, barRadius, corners);
+
                                                 const rect = (
-                                                    <rect
+                                                    <path
                                                         key={`${d.id}-${i}`}
-                                                        x={x}
-                                                        y={segmentY}
-                                                        width={barWidth}
-                                                        height={segmentHeight}
+                                                        d={pathD}
                                                         fill={stack.color}
-                                                        rx={barRadius}
                                                         opacity={barOpacity}
                                                         stroke={isSelected ? '#fff' : 'none'}
                                                         strokeWidth={isSelected ? 1 : 0}

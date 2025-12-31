@@ -28,8 +28,8 @@ export const Bar: React.FC<BarProps> = ({
 
     return (
         <motion.rect
-            initial={{ height: 0, y: y + height }}
-            animate={{ height, y }}
+            initial={{ height: 0, y: y + height, x }}
+            animate={{ height, y, x }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             width={width}
             fill={fillColor}
