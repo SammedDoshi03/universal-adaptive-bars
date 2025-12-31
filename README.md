@@ -3,7 +3,9 @@
 A highly customizable, interactive, and drill-down capable Bar Chart library for **React** and **React Native**.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-0.0.1-green.svg)
+![Version](https://img.shields.io/badge/version-0.0.4-green.svg)
+
+📖 **Read the Story**: [Universal Adaptive Bars: The Smart Cross-Platform Charting Library You’ve Been Waiting For](https://sammeddoshi.medium.com/universal-adaptive-bars-the-smart-cross-platform-charting-library-youve-been-waiting-for-80501b0c0e3b)
 
 ## Features
 
