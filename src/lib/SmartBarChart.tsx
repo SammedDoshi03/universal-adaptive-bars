@@ -10,7 +10,8 @@ export const SmartBarChart: React.FC<SmartBarChartProps> = ({
     data,
     view = 'month',
     variant = 'default',
-    dataKeys,
+    dataKeys = { date: 'date', value: 'value', label: 'label' },
+
     geminiConfig,
     colors,
     axisLabels,
