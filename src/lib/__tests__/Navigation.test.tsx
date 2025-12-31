@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { SmartBarChart } from '../SmartBarChart';
 
 describe('SmartBarChart Navigation', () => {
@@ -14,7 +14,7 @@ describe('SmartBarChart Navigation', () => {
     });
 
     it('enables prev button when data exceeds visible count', () => {
-        render(<SmartBarChart data={mockData} view="month" />); // VISIBLE_COUNT = 12
+        render(<SmartBarChart data={mockData} view="month" dataKeys={{ date: 'date', value: 'value', label: 'label' }} />); // VISIBLE_COUNT = 12
         // mockData has 24 items. 
         // Initial window: last 12 items (indices 12-23).
         // Prev button should be enabled because we can go back to indices 0-11.
@@ -27,7 +27,7 @@ describe('SmartBarChart Navigation', () => {
     });
 
     it('updates window offset when prev button is clicked', () => {
-        render(<SmartBarChart data={mockData} view="month" />);
+        render(<SmartBarChart data={mockData} view="month" dataKeys={{ date: 'date', value: 'value', label: 'label' }} />);
         const prevBtn = screen.getByText('<');
 
         fireEvent.click(prevBtn);
