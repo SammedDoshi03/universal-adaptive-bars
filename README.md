@@ -3,11 +3,11 @@
 A highly customizable, interactive, and drill-down capable Bar Chart library for **React** and **React Native**.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-0.0.5-green.svg)
+![Version](https://img.shields.io/badge/version-0.0.6-green.svg)
 
 📖 **Read the Story**: [Universal Adaptive Bars: The Smart Cross-Platform Charting Library You’ve Been Waiting For](https://sammeddoshi.medium.com/universal-adaptive-bars-the-smart-cross-platform-charting-library-youve-been-waiting-for-80501b0c0e3b)
 
-## New in v0.0.5 🚀
+## New in v0.0.6 🚀
 - **Calendar Jump**: Selecting a date in the calendar now "jumps" to that date (scrolling the view) instead of filtering data, preserving your ability to navigate back and forth.
 - **Smart Stacked Radius**: Stacked bars now intelligently apply rounded corners only to the top and bottom segments for a polished UI.
 - **Improved Alignment**: Perfect X-axis alignment for both standard and stacked bars.
