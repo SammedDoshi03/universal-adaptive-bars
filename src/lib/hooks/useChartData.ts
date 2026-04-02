@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { parseISO, format, startOfWeek, endOfWeek, startOfMonth, isValid } from 'date-fns';
+import { parseISO, format, startOfWeek, endOfWeek, startOfMonth, isValid, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, eachYearOfInterval } from 'date-fns';
 import type { DataPoint, ChartView, RawDataPoint } from '../types';
 
 interface UseChartDataProps {
@@ -11,12 +11,13 @@ interface UseChartDataProps {
         date: string;
     };
     colors?: string[];
+    missingDataStrategy?: 'skip' | 'zero';
 }
 
 // Default Premium Palette
 const DEFAULT_PALETTE = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#3b82f6', '#ef4444'];
 
-export const useChartData = ({ data, view, dataKeys, colors = DEFAULT_PALETTE }: UseChartDataProps) => {
+export const useChartData = ({ data, view, dataKeys, colors = DEFAULT_PALETTE, missingDataStrategy = 'skip' }: UseChartDataProps) => {
     const processedData = useMemo(() => {
         if (!data || data.length === 0) return [];
 
@@ -204,9 +205,56 @@ export const useChartData = ({ data, view, dataKeys, colors = DEFAULT_PALETTE }:
             aggregated = sorted;
         }
 
+        // Fill missing data
+        if (missingDataStrategy === 'zero' && aggregated.length > 0) {
+            const minDate = aggregated[0].date;
+            const maxDate = aggregated[aggregated.length - 1].date;
+            
+            // Generate all intervals
+            let intervals: Date[] = [];
+            if (view === 'day') intervals = eachDayOfInterval({ start: minDate, end: maxDate });
+            else if (view === 'week') intervals = eachWeekOfInterval({ start: minDate, end: maxDate });
+            else if (view === 'month') intervals = eachMonthOfInterval({ start: minDate, end: maxDate });
+            else if (view === 'year') intervals = eachYearOfInterval({ start: minDate, end: maxDate });
+            
+            // Map intervals to data
+            const lookup = new Map(aggregated.map(d => [d.id, d]));
+            
+            aggregated = intervals.map((date, _idx) => {
+                let keyStr = '';
+                if (view === 'day') keyStr = format(date, 'yyyy-MM-dd');
+                else if (view === 'week') keyStr = format(startOfWeek(date), 'yyyy-MM-dd');
+                else if (view === 'month') keyStr = format(startOfMonth(date), 'yyyy-MM');
+                else if (view === 'year') keyStr = format(date, 'yyyy');
+                
+                if (lookup.has(keyStr)) {
+                    return lookup.get(keyStr)!;
+                }
+                
+                // Construct empty data point
+                let emptyLabel = '';
+                if (view === 'day') emptyLabel = format(date, 'E dd');
+                else if (view === 'week') {
+                    const ws = startOfWeek(date);
+                    const we = endOfWeek(date);
+                    emptyLabel = `${format(ws, 'MMM dd')}-${format(we, 'MMM dd')}`;
+                }
+                else if (view === 'month') emptyLabel = format(date, 'MMM yy');
+                else if (view === 'year') emptyLabel = format(date, 'yyyy');
+                
+                return {
+                    id: keyStr,
+                    label: emptyLabel,
+                    value: 0,
+                    date: date,
+                    color: colors[0]
+                };
+            });
+        }
+
         return aggregated;
 
-    }, [data, view, dataKeys, colors]);
+    }, [data, view, dataKeys, colors, missingDataStrategy]);
 
     return processedData;
 };

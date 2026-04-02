@@ -42,7 +42,11 @@ export interface ChartTheme {
 export interface SmartBarChartProps {
     data: RawDataPoint[];
     view?: ChartView;
-    variant?: 'default' | 'stacked';
+    variant?: 'default' | 'stacked' | 'grouped';
+    layout?: 'vertical' | 'horizontal';
+    missingDataStrategy?: 'skip' | 'zero';
+    valueFormatter?: (value: number) => string;
+    annotations?: { value: number; label?: string; color?: string; strokeDasharray?: string }[];
     colors?: string[];
     theme?: ChartTheme; // New
     axisLabels?: { x?: string; y?: string };
@@ -58,6 +62,7 @@ export interface SmartBarChartProps {
     };
     onPredict?: (currentData: DataPoint[]) => Promise<DataPoint[]>;
     onAnalyze?: (currentData: DataPoint[]) => Promise<string>;
+    renderTooltip?: (data: DataPoint) => React.ReactNode;
     height?: number;
     width?: number | string;
     className?: string;

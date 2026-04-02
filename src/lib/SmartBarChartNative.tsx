@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Modal, ScrollView } from 'react-native';
-import Svg, { G, Text as SvgText, Line, Rect } from 'react-native-svg';
+import Svg, { G, Text as SvgText, Line, Rect, Path } from 'react-native-svg';
 import { scaleBand, scaleLinear } from 'd3-scale';
 import { getYear, getMonth, format, endOfWeek, eachWeekOfInterval, endOfMonth, isWithinInterval } from 'date-fns';
 import { useChartData } from './hooks/useChartData';
@@ -12,14 +12,37 @@ export const SmartBarChartNative: React.FC<SmartBarChartProps> = ({
     data,
     view = 'month',
     variant = 'default',
+    layout = 'vertical',
+    missingDataStrategy = 'skip',
+    valueFormatter = (val) => String(val),
+    annotations = [],
     dataKeys,
     geminiConfig,
     colors,
     axisLabels,
     onViewChange,
     height = 400,
-    width = '100%',
+    width = '100%'
 }) => {
+    const getRoundedPath = (x: number, y: number, w: number, h: number, r: number, corners: { tl: boolean, tr: boolean, bl: boolean, br: boolean }) => {
+        const tl = corners.tl ? r : 0;
+        const tr = corners.tr ? r : 0;
+        const bl = corners.bl ? r : 0;
+        const br = corners.br ? r : 0;
+
+        return `
+        M ${x + tl} ${y}
+        L ${x + w - tr} ${y}
+        Q ${x + w} ${y} ${x + w} ${y + tr}
+        L ${x + w} ${y + h - br}
+        Q ${x + w} ${y + h} ${x + w - br} ${y + h}
+        L ${x + bl} ${y + h}
+        Q ${x} ${y + h} ${x} ${y + h - bl}
+        L ${x} ${y + tl}
+        Q ${x} ${y} ${x + tl} ${y}
+        Z
+        `;
+    };
     // Calendar / Filter State
     const [filterDate, setFilterDate] = useState<{ year: number | null, month: number | null, weekStartDate: Date | null }>({ year: null, month: null, weekStartDate: null });
     const [isPickerVisible, setIsPickerVisible] = useState(false);
@@ -50,7 +73,7 @@ export const SmartBarChartNative: React.FC<SmartBarChartProps> = ({
         return Array.from(years).sort((a, b) => b - a);
     }, [data, dataKeys.date]);
 
-    const fullChartData = useChartData({ data: filteredRawData, view, dataKeys, colors });
+    const fullChartData = useChartData({ data: filteredRawData, view, dataKeys, colors, missingDataStrategy });
     const [activeItem, setActiveItem] = useState<DataPoint | null>(null);
     const [predictions, setPredictions] = useState<DataPoint[]>([]);
     const [isPredicting, setIsPredicting] = useState(false);
@@ -131,19 +154,21 @@ export const SmartBarChartNative: React.FC<SmartBarChartProps> = ({
     // Simplifying: we'll just overlay specific buttons outside margin.
 
     // Scales
-    const xScale = useMemo(() => {
+    const isHorizontal = layout === 'horizontal';
+
+    const domainScale = useMemo(() => {
         return scaleBand()
             .domain(visibleData.map(d => d.id))
-            .range([0, chartWidth])
+            .range(isHorizontal ? [0, chartHeight] : [0, chartWidth])
             .padding(0.3);
-    }, [visibleData, chartWidth]);
+    }, [visibleData, chartWidth, chartHeight, isHorizontal]);
 
-    const yScale = useMemo(() => {
+    const valueScale = useMemo(() => {
         const maxVal = Math.max(...visibleData.map(d => d.value), 0);
         return scaleLinear()
             .domain([0, maxVal * 1.1])
-            .range([chartHeight, 0]);
-    }, [visibleData, chartHeight]);
+            .range(isHorizontal ? [0, chartWidth] : [chartHeight, 0]);
+    }, [visibleData, chartWidth, chartHeight, isHorizontal]);
 
     const handlePredict = async () => {
         if (!geminiConfig?.apiKey) return;
@@ -339,15 +364,44 @@ export const SmartBarChartNative: React.FC<SmartBarChartProps> = ({
                 >
                     <Svg width="100%" height="100%">
                         <G transform={`translate(${margin.left},${margin.top})`}>
-                            {/* Gridlines & Y-Axis */}
-                            {yScale.ticks(5).map(tickValue => (
-                                <G key={`y-tick-${tickValue}`} transform={`translate(0, ${yScale(tickValue)})`}>
-                                    <Line x1={0} x2={chartWidth} stroke="#eee" strokeDasharray="4 4" />
-                                    <SvgText x={-10} y={4} textAnchor="end" fontSize={10} fill="#999">
-                                        {tickValue}
-                                    </SvgText>
-                                </G>
-                            ))}
+                            {/* Gridlines & Value Axis */}
+                            {valueScale.ticks(5).map(tickValue => {
+                                const valPos = valueScale(tickValue);
+                                return (
+                                    <G key={`y-tick-${tickValue}`} transform={isHorizontal ? `translate(${valPos}, 0)` : `translate(0, ${valPos})`}>
+                                        <Line x1={0} y1={0} x2={isHorizontal ? 0 : chartWidth} y2={isHorizontal ? chartHeight : 0} stroke="#eee" strokeDasharray="4 4" />
+                                        <SvgText x={isHorizontal ? 0 : -10} y={isHorizontal ? chartHeight + 15 : 4} textAnchor={isHorizontal ? "middle" : "end"} fontSize={10} fill="#999">
+                                            {valueFormatter(tickValue)}
+                                        </SvgText>
+                                    </G>
+                                )
+                            })}
+
+                            {/* Annotations */}
+                            {annotations.map((ann, i) => {
+                                const valPos = valueScale(ann.value);
+                                if (isNaN(valPos)) return null;
+                                return (
+                                    <G key={`annotation-${i}`} transform={isHorizontal ? `translate(${valPos}, 0)` : `translate(0, ${valPos})`}>
+                                        <Line 
+                                            x1={0} y1={0}
+                                            x2={isHorizontal ? 0 : chartWidth} 
+                                            y2={isHorizontal ? chartHeight : 0} 
+                                            stroke={ann.color || '#ef4444'} strokeDasharray={ann.strokeDasharray || '4 4'} strokeWidth={2} 
+                                        />
+                                        {ann.label && (
+                                            <SvgText 
+                                                x={isHorizontal ? 0 : chartWidth} 
+                                                y={isHorizontal ? -5 : -5} 
+                                                textAnchor={isHorizontal ? "middle" : "end"} 
+                                                fill={ann.color || '#ef4444'} fontSize={10} fontWeight="bold"
+                                            >
+                                                {ann.label}
+                                            </SvgText>
+                                        )}
+                                    </G>
+                                );
+                            })}
 
                             {/* Axis Lines */}
                             <Line x1={0} y1={chartHeight} x2={chartWidth} y2={chartHeight} stroke="#ccc" />
@@ -381,48 +435,93 @@ export const SmartBarChartNative: React.FC<SmartBarChartProps> = ({
 
                             {/* Bars */}
                             {visibleData.map((d) => {
-                                const xBand = xScale(d.id);
-                                const bandwidth = xScale.bandwidth();
+                                const bandPos = domainScale(d.id);
+                                const bandwidth = domainScale.bandwidth();
                                 const maxBarWidth = 60;
-                                const barWidth = Math.min(bandwidth, maxBarWidth);
-                                const x = xBand! + (bandwidth - barWidth) / 2;
+                                const barThickness = Math.min(bandwidth, maxBarWidth);
+                                const orthogonalOffset = bandPos! + (bandwidth - barThickness) / 2;
+                                
+                                const valEndPos = valueScale(d.value);
+                                const valZeroPos = valueScale(0);
 
-                                const yTotal = yScale(d.value);
-                                const barHeightTotal = chartHeight - yTotal;
-
-                                if (xBand === undefined) return null;
+                                if (bandPos === undefined) return null;
 
                                 const isSelected = activeItem?.id === d.id;
                                 const isDimmed = activeItem !== null && !isSelected;
 
-                                // Stacked Rendering
-                                if (variant === 'stacked' && d.stackedValues) {
-                                    let currentY = chartHeight;
+                                const barLengthTotal = Math.abs(valZeroPos - valEndPos);
+                                const xTotal = isHorizontal ? valZeroPos : orthogonalOffset;
+                                const yTotal = isHorizontal ? orthogonalOffset : valEndPos;
+                                const wTotal = isHorizontal ? barLengthTotal : barThickness;
+                                const hTotal = isHorizontal ? barThickness : barLengthTotal;
+
+                                // Stacked or Grouped Rendering
+                                if ((variant === 'stacked' || variant === 'grouped') && d.stackedValues) {
+                                    let currentStart = valZeroPos;
+                                    const groupThickness = barThickness / d.stackedValues.length;
+
                                     return (
                                         <G key={d.id}
                                             onPress={() => setActiveItem(activeItem === d ? null : d)}
                                             opacity={isDimmed ? 0.3 : 1}
                                         >
                                             {d.stackedValues.map((stack, i) => {
-                                                const segmentHeight = Math.abs(yScale(stack.value) - yScale(0));
-                                                const segmentY = currentY - segmentHeight;
-                                                const rect = (
-                                                    <Rect
+                                                const segLength = Math.abs(valueScale(stack.value) - valueScale(0));
+                                                
+                                                let segmentX, segmentY, segmentW, segmentH;
+                                                let corners = { tl: false, tr: false, bl: false, br: false };
+                                                
+                                                if (variant === 'stacked') {
+                                                    if (isHorizontal) {
+                                                        segmentX = currentStart;
+                                                        segmentY = orthogonalOffset;
+                                                        segmentW = segLength;
+                                                        segmentH = barThickness;
+                                                        
+                                                        const isFirst = i === 0;
+                                                        const isLast = i === d.stackedValues!.length - 1;
+                                                        corners = { tl: isFirst, bl: isFirst, tr: isLast, br: isLast };
+                                                        currentStart += segLength;
+                                                    } else {
+                                                        segmentH = segLength;
+                                                        segmentY = currentStart - segLength;
+                                                        segmentX = orthogonalOffset;
+                                                        segmentW = barThickness;
+                                                        
+                                                        const isTop = i === d.stackedValues!.length - 1;
+                                                        const isBottom = i === 0;
+                                                        corners = { tl: isTop, tr: isTop, bl: isBottom, br: isBottom };
+                                                        currentStart = segmentY;
+                                                    }
+                                                } else { // grouped
+                                                    if (isHorizontal) {
+                                                        segmentX = valZeroPos;
+                                                        segmentY = orthogonalOffset + i * groupThickness;
+                                                        segmentW = segLength;
+                                                        segmentH = groupThickness;
+                                                    } else {
+                                                        segmentX = orthogonalOffset + i * groupThickness;
+                                                        segmentY = valueScale(stack.value);
+                                                        segmentW = groupThickness;
+                                                        segmentH = segLength;
+                                                    }
+                                                    corners = { tl: !isHorizontal, tr: true, bl: isHorizontal, br: isHorizontal };
+                                                }
+
+                                                const pathD = getRoundedPath(segmentX, segmentY, segmentW, segmentH, 4, corners);
+
+                                                return (
+                                                    <Path
                                                         key={`${d.id}-${i}`}
-                                                        x={x}
-                                                        y={segmentY}
-                                                        width={barWidth}
-                                                        height={segmentHeight}
+                                                        d={pathD}
                                                         fill={stack.color}
                                                         stroke={isSelected ? '#fff' : 'none'}
                                                         strokeWidth={isSelected ? 1 : 0}
                                                     />
                                                 );
-                                                currentY = segmentY;
-                                                return rect;
                                             })}
                                             {/* Hitbox */}
-                                            <Rect x={x} y={yTotal} width={barWidth} height={barHeightTotal} fill="transparent" onPress={() => setActiveItem(activeItem === d ? null : d)} />
+                                            <Rect x={xTotal} y={yTotal} width={wTotal} height={hTotal} fill="transparent" onPress={() => setActiveItem(activeItem === d ? null : d)} />
                                         </G>
                                     )
                                 }
@@ -430,10 +529,10 @@ export const SmartBarChartNative: React.FC<SmartBarChartProps> = ({
                                 return (
                                     <G key={d.id}>
                                         <BarNative
-                                            x={x}
+                                            x={xTotal}
                                             y={yTotal}
-                                            width={barWidth}
-                                            height={barHeightTotal}
+                                            width={wTotal}
+                                            height={hTotal}
                                             data={d}
                                             isActive={isSelected}
                                             isDimmed={isDimmed}
@@ -445,30 +544,30 @@ export const SmartBarChartNative: React.FC<SmartBarChartProps> = ({
                                         />
                                         {isSelected && (
                                             <SvgText
-                                                x={x + barWidth / 2}
-                                                y={yTotal - 5}
-                                                textAnchor="middle"
+                                                x={isHorizontal ? xTotal + wTotal + 10 : xTotal + wTotal / 2}
+                                                y={isHorizontal ? yTotal + hTotal / 2 + 4 : yTotal - 5}
+                                                textAnchor={isHorizontal ? "start" : "middle"}
                                                 fill="#333"
                                                 fontSize={10}
                                                 fontWeight="bold"
                                             >
-                                                {d.value}
+                                                {valueFormatter(d.value)}
                                             </SvgText>
                                         )}
                                     </G>
                                 );
                             })}
 
-                            {/* X Axis Labels */}
+                            {/* Domain Axis Labels */}
                             {visibleData.map((d) => {
-                                const x = xScale(d.id);
-                                if (x === undefined) return null;
+                                const bandPos = domainScale(d.id);
+                                if (bandPos === undefined) return null;
                                 return (
                                     <SvgText
                                         key={`label-${d.id}`}
-                                        x={x + xScale.bandwidth() / 2}
-                                        y={chartHeight + 15}
-                                        textAnchor="middle"
+                                        x={isHorizontal ? -10 : bandPos + domainScale.bandwidth() / 2}
+                                        y={isHorizontal ? bandPos + domainScale.bandwidth() / 2 + 4 : chartHeight + 15}
+                                        textAnchor={isHorizontal ? "end" : "middle"}
                                         fill="#666"
                                         fontSize={10}
                                     >
